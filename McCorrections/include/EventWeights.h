@@ -52,7 +52,7 @@ public:
                 providers[WeightType::TopPt] = std::make_shared<TopPtWeight>(0.0615, 0.0005);
             if(mode.empty() || mode.count(WeightType::TauId))
                 providers[WeightType::TauId] = std::make_shared<TauIdWeight>(
-                            FullName("Tau/fitresults_tt_moriond2017.json"), DiscriminatorWP::Medium);
+                            FullName("Tau/fitresults_tt_moriond2017.json"), DiscriminatorWP::Tight);
         } else {
             throw exception("Period %1% is not supported.") % period;
         }

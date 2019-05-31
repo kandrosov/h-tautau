@@ -45,10 +45,6 @@ This file is part of https://github.com/hh-italian-group/h-tautau. */
     /* Missing transvers energy (MET) and the fitted mass of the Higgs candidate */ \
     VAR(Float_t, met_px) /* The x component of the MET */ \
     VAR(Float_t, met_py) /* The y component of the MET */ \
-    VAR(Float_t, met_cov_00) /* (0, 0) element of the MET covariance matrix */ \
-    VAR(Float_t, met_cov_01) /* (0, 1) element of the MET covariance matrix */ \
-    VAR(Float_t, met_cov_10) /* (1, 0) element of the MET covariance matrix  */ \
-    VAR(Float_t, met_cov_11) /* (1, 1) element of the MET covariance matrix  */ \
     VAR(Float_t, fitted_H_mass) /* Mass of the Higgs candidate obtained by the MCMC integration */ \
     /* Selected leading and sub-leading jet candidates in the event (excluding hadronic taus) */ \
     VAR(Float_t, n_jets) /* Total number of the selected jets in the event */ \

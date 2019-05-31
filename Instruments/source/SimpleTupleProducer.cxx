@@ -8,6 +8,7 @@ This file is part of https://github.com/hh-italian-group/h-tautau. */
 #include "h-tautau/Analysis/include/SummaryTuple.h"
 #include "h-tautau/Analysis/include/SimpleTuple.h"
 #include "h-tautau/Instruments/include/SimpleTupleProducerConfigReader.h"
+#include "h-tautau/McCorrections/include/TauIdWeight.h"
 
 struct Arguments {
     REQ_ARG(std::string, cfg);
@@ -46,6 +47,43 @@ public:
         static const std::set<analysis::Channel> default_channels = {
             analysis::Channel::ETau, analysis::Channel::MuTau, analysis::Channel::TauTau
         };
+
+        static const std::map<analysis::Channel, std::pair<double, double>> pt_cuts = {
+            { analysis::Channel::ETau, { 26, 30 } },
+            { analysis::Channel::MuTau, { 20, 30 } },
+            { analysis::Channel::TauTau, { 50, 40 } },
+        };
+
+
+        // expected QCD/total_bkg in the signal region
+        // eTau: 3.3 / 46.5 = 0.071
+        // muTau: 5.0 / 77.7 = 0.064
+        // tauTau: 35.5 / 156.2 = 0.228
+        static const std::map<analysis::Channel, double> os_ss_sf = {
+            { analysis::Channel::ETau, 1.10 }, //0.87 },
+            { analysis::Channel::MuTau, 0.99 }, //0.7 },
+            { analysis::Channel::TauTau, 1.20 }, //1.22 },
+        };
+
+        // static const std::map<analysis::Channel, double> os_ss_sf_in = {
+        //     { analysis::Channel::ETau, 0.84 }, //0.87 },
+        //     { analysis::Channel::MuTau, 0.70 }, //0.7 },
+        //     { analysis::Channel::TauTau, 0.90 }, //1.22 },
+        // };
+        //
+        // static const std::map<analysis::Channel, double> os_ss_sf_out = {
+        //     { analysis::Channel::ETau, 1.18 }, //0.87 },
+        //     { analysis::Channel::MuTau, 0.99 }, //0.7 },
+        //     { analysis::Channel::TauTau, 1.27 }, //1.22 },
+        // };
+
+
+        static const double tau_id_sf = 0.87;
+        analysis::mc_corrections::TauIdWeight tau_trig_weight_medium(
+            "h-tautau/McCorrections/data/Tau/fitresults_tt_moriond2017.json", analysis::DiscriminatorWP::Medium);
+        analysis::mc_corrections::TauIdWeight tau_trig_weight_tight(
+            "h-tautau/McCorrections/data/Tau/fitresults_tt_moriond2017.json", analysis::DiscriminatorWP::Tight);
+
         auto output_file = root_ext::CreateRootFile(args.output());
         EventTuple tuple(output_file.get(), false);
 
@@ -67,7 +105,12 @@ public:
                 auto input_tuple = ntuple::CreateEventTuple(ToString(channel), input_file.get(), true,
                                                             ntuple::TreeState::Skimmed);
                 const auto& channel_triggers = setup.trigger_paths.at(channel);
+                const auto& channel_pt_cuts = pt_cuts.at(channel);
+                const double channel_os_ss_sf = os_ss_sf.at(channel);
+
                 for(const auto& event : *input_tuple) {
+                    if(!(event.p4_1.pt() > channel_pt_cuts.first && event.p4_2.pt() > channel_pt_cuts.second)) continue;
+
                     analysis::TriggerResults triggerResults;
                     triggerResults.SetAcceptBits(event.trigger_accepts);
                     triggerResults.SetMatchBits(event.trigger_matches);
@@ -77,18 +120,22 @@ public:
                     const bool os = event.q_1 * event.q_2 == -1;
                     if(!os && sample.sample_type == SampleType::H_tautau) continue;
 
-                    static const std::map<analysis::Channel, double> ss_os_sf = {
-                        { analysis::Channel::ETau, 0.87 },
-                        { analysis::Channel::MuTau, 0.7 },
-                        { analysis::Channel::TauTau, 1.22 },
-                    };
                     double weight = 1;
                     if(sample.sample_type != SampleType::Data) {
+                        const analysis::GenMatch gen_match_1 = static_cast<analysis::GenMatch>(event.gen_match_1);
+                        const analysis::GenMatch gen_match_2 = static_cast<analysis::GenMatch>(event.gen_match_2);
+
                         weight = event.weight_total * sample.cross_section * setup.int_lumi
                                / summary.totalShapeWeight;
+
+                        weight *= tau_trig_weight_tight.Get(event) / tau_trig_weight_medium.Get(event);
+                        if(gen_match_1 == analysis::GenMatch::Tau)
+                            weight *= tau_id_sf;
+                        if(gen_match_2 == analysis::GenMatch::Tau)
+                            weight *= tau_id_sf;
                     }
                     const double weight_sign = !os && sample.sample_type != SampleType::Data ? -1 : 1;
-                    const double weight_sf = os ? 1 : ss_os_sf.at(channel);
+                    const double weight_sf = os ? 1 : channel_os_ss_sf;
                     weight = weight * weight_sign * weight_sf;
                     const SampleType sample_type = os ? sample.sample_type : SampleType::QCD;
 
@@ -127,10 +174,6 @@ public:
                     tuple().gen_E_2 = HasGenMatch(event.gen_match_2) ? event.gen_p4_2.E() : default_value;
                     tuple().met_px = event.pfMET_p4.px();
                     tuple().met_py = event.pfMET_p4.py();
-                    tuple().met_cov_00 = static_cast<float>(event.pfMET_cov[0][0]);
-                    tuple().met_cov_01 = static_cast<float>(event.pfMET_cov[0][1]);
-                    tuple().met_cov_10 = static_cast<float>(event.pfMET_cov[1][0]);
-                    tuple().met_cov_11 = static_cast<float>(event.pfMET_cov[1][1]);
                     tuple().fitted_H_mass = event.SVfit_p4.mass();
 
                     auto jet_indices = OrderJetsByPt(event);
@@ -141,6 +184,7 @@ public:
                     tuple().leading_jet_pz = n_jets > 0 ? event.jets_p4.at(jet_indices.at(0)).pz() : default_value;
                     tuple().leading_jet_E = n_jets > 0 ? event.jets_p4.at(jet_indices.at(0)).E() : default_value;
                     tuple().leading_jet_btag = n_jets > 0 ? event.jets_csv.at(jet_indices.at(0)) : default_value;
+
                     tuple().subleading_jet_px = n_jets > 1 ? event.jets_p4.at(jet_indices.at(1)).px() : default_value;
                     tuple().subleading_jet_py = n_jets > 1 ? event.jets_p4.at(jet_indices.at(1)).py() : default_value;
                     tuple().subleading_jet_pz = n_jets > 1 ? event.jets_p4.at(jet_indices.at(1)).pz() : default_value;
